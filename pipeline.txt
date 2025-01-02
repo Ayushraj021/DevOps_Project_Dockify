@@ -1,0 +1,81 @@
+pipeline {
+    agent any
+    tools {
+        jdk 'jdk17'
+        nodejs 'node16'
+    }
+    environment {
+        SCANNER_HOME = tool 'mysonar'
+    }
+    stages {
+        stage("Clean Workspace") {
+            steps {
+                cleanWs()
+            }
+        }
+        stage("Checkout Code") {
+            steps {
+                git url: 'https://github.com/devops0014/Zomato-Project.git'
+            }
+        }
+        stage("SonarQube Analysis") {
+            steps {
+                withSonarQubeEnv('mysonar') {
+                    sh """
+                        $SCANNER_HOME/bin/sonar-scanner \
+                        -Dsonar.projectName=zomato \
+                        -Dsonar.projectKey=zomato
+                    """
+                }
+            }
+        }
+        stage("Quality Gates") {
+            steps {
+                script {
+                    waitForQualityGate abortPipeline: false, credentialsId: 'sonar-token'
+                }
+            }
+        }
+        stage("Install Dependencies") {
+            steps {
+                sh 'npm install'
+            }
+        }
+        stage("OWASP Dependency Check") {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        stage("Trivy File Scan") {
+            steps {
+                sh 'trivy fs . > trivyfs.txt'
+            }
+        }
+        stage("Build Docker Image") {
+            steps {
+                sh 'docker build -t image1 .'
+            }
+        }
+        stage("Tag & Push Docker Image") {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker-password') {
+                        sh 'docker tag image1 ayushraj021/project-1'
+                        sh 'docker push ayushraj021/project-1'
+                    }
+                }
+            }
+        }
+        stage("Scan Docker Image") {
+            steps {
+                sh 'trivy image ayushraj021/project-1'
+            }
+        }
+        stage("Run Docker Container") {
+            steps {
+                sh 'docker run -d --name cont1 -p 3000:3000 ayushraj021/project-1'
+            }
+        }
+    }
+}
